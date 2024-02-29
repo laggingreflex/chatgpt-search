@@ -18,7 +18,7 @@ function App() {
     if (!didInit) {
       didInit = true;
       // cacheGetFile('conversations', 'myCache').then(processFile).then(setConversations);
-      cacheGetJson('json', 'myCache').then(setConversations);
+      cacheGetJson('json', 'myCache').then(c => setConversations(c || []));
     }
   });
 
