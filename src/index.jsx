@@ -11,33 +11,34 @@ root.render(<App />);
 
 function App() {
   const [conversations, setConversations] = useState([]);
+  // console.log('conversations.length:', conversations.length)
   const [input, setInput] = useState('');
 
   useEffect(() => {
     if (!didInit) {
       didInit = true;
-      cacheGet('file', 'myCache').then(processFile).then(setConversations);
+      // cacheGetFile('conversations', 'myCache').then(processFile).then(setConversations);
+      cacheGetJson('json', 'myCache').then(setConversations);
     }
   });
 
   return (
     <>
-      <h1>OpenAI Chat Search</h1>
+      <h1>ChatGPT Search</h1>
+      {!conversations.length && (
+        <p>
+          Goto{' '}
+          <a href="https://chat.openai.com/#settings/DataControls">
+            ChatGPT » Export data
+          </a>{' '}
+          and upload (the zip file) here, then you can search through all your
+          conversations.
+        </p>
+      )}
       <input type="text" onChange={onType} />
       <SearchResults input={input} conversations={conversations} />
+      {/* {!!input && <SearchResults input={input} conversations={conversations} />} */}
       <input type="file" onChange={onFile} />
-      {!conversations.length && (
-        <>
-          <h1>How</h1>
-          <p>
-            Goto{' '}
-            <a href="https://chat.openai.com/#settings/DataControls">
-              ChatGPT » Export data
-            </a>{' '}
-            and upload here, then you can search through all your conversations.
-          </p>
-        </>
-      )}
     </>
   );
 
@@ -50,13 +51,14 @@ function App() {
     if (!file) return;
     const conversations = await processFile(file);
     setConversations(conversations);
-    await cachePut(file, 'file', 'myCache');
+    await cachePutFile(file, 'file', 'myCache');
+    await cachePutJson(conversations, 'json', 'myCache');
   }
 }
 
 function SearchResults({ input, conversations }) {
   const miniSearch = useMemo(memo, [conversations]);
-  const showing = miniSearch.search(input);
+  const showing = miniSearch.search(input) ?? [];
 
   return (
     <>
@@ -76,32 +78,58 @@ function SearchResults({ input, conversations }) {
   }
 
   function memo() {
-    const miniSearch = new MiniSearch({
-      fields: ['title', 'text'],
-      storeFields: ['id', 'title', 'date'],
+    console.time('miniSearch');
+    let miniSearch;
+    setTimeout(() => {
+      miniSearch = new MiniSearch({
+        fields: ['title', 'text'],
+        storeFields: ['id', 'title', 'date'],
+      });
+      miniSearch.addAll(conversations);
+      console.timeEnd('miniSearch');
+      return miniSearch;
     });
-    miniSearch.addAll(conversations);
-    return miniSearch;
+    return { search: (i) => miniSearch?.search?.(i) };
   }
 }
 
 /* Helpers */
 
-async function cacheGet(key = 'file', cacheName = 'myCache') {
+async function cacheGetFile(key = 'file', cacheName = 'myCache') {
+  console.time('cacheGetFile');
   const cache = await caches.open(cacheName);
   const response = await cache.match(key);
   const blob = await response?.blob();
+  console.timeEnd('cacheGetFile');
   return blob;
 }
 
-async function cachePut(file, key = 'file', cacheName = 'myCache') {
-  console.log('file:', file)
+async function cacheGetJson(key = 'json', cacheName = 'myCache') {
+  console.time('cacheGetJson');
+  const cache = await caches.open(cacheName);
+  const response = await cache.match(key);
+  const json = response?.json();
+  // const blob = await response?.blob();
+  console.timeEnd('cacheGetJson');
+  return json;
+}
+
+async function cachePutJson(json, key = 'json', cacheName = 'myCache') {
+  console.log('json:', json);
+  const cache = await caches.open(cacheName);
+  const response = new Response(JSON.stringify(json));
+  await cache.put(key, response);
+}
+
+async function cachePutFile(file, key = 'file', cacheName = 'myCache') {
+  console.log('file:', file);
   const cache = await caches.open(cacheName);
   const response = new Response(file);
   await cache.put(key, response);
 }
 
 async function processFile(file) {
+  console.time('processFile');
   const buffer = await readFileFromInput(file);
   const zip = await JSZip.loadAsync(buffer);
   const text = await zip.file('conversations.json')?.async('text');
@@ -109,6 +137,7 @@ async function processFile(file) {
   const conversations = json.map(mapConversation).sort(sortConversation);
   console.debug(conversations);
   console.log(`${conversations.length} conversations loaded`);
+  console.timeEnd('processFile');
   return conversations;
 
   function mapConversation(conversation) {
