@@ -2,6 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import JSZip from 'jszip';
 import MiniSearch from 'minisearch';
+import Markdown from 'react-markdown';
+import ReadMe from '../README.md?raw';
+
+// console.log('ReadMe:', ReadMe);
 
 let didInit = false;
 const root = createRoot(document.getElementById('app') || document.body);
@@ -18,7 +22,7 @@ function App() {
     if (!didInit) {
       didInit = true;
       // cacheGetFile('conversations', 'myCache').then(processFile).then(setConversations);
-      cacheGetJson('json', 'myCache').then(c => setConversations(c || []));
+      cacheGetJson('json', 'myCache').then((c) => setConversations(c || []));
     }
   });
 
@@ -26,6 +30,7 @@ function App() {
     <>
       <h1>ChatGPT Search</h1>
       {!conversations.length && (
+        // <Markdown>{ReadMe}</Markdown>
         <p>
           Goto{' '}
           <a href="https://chat.openai.com/#settings/DataControls">
@@ -35,10 +40,16 @@ function App() {
           conversations.
         </p>
       )}
-      <input type="text" onChange={onType} />
-      <SearchResults input={input} conversations={conversations} />
+      {!!conversations?.length && (
+        <input type="text" autoFocus onChange={onType} />
+      )}
+      {/* <SearchResults input={input} conversations={conversations} /> */}
+      {!!conversations?.length && (
+        <SearchResults input={input} conversations={conversations} />
+      )}
       {/* {!!input && <SearchResults input={input} conversations={conversations} />} */}
       <input type="file" onChange={onFile} />
+      {!conversations.length && <Markdown>{ReadMe}</Markdown>}
     </>
   );
 
@@ -62,14 +73,14 @@ function SearchResults({ input, conversations }) {
 
   return (
     <>
-      <ol>
+      <p className="search-results">
+        Showing {showing.length} of {conversations?.length ?? 0} conversations
+      </p>
+      <ol className="search-results">
         {showing.map((c) => (
           <li>{map(c)}</li>
         ))}
       </ol>
-      <p>
-        Showing {showing.length} of {conversations?.length ?? 0} conversations
-      </p>
     </>
   );
 
