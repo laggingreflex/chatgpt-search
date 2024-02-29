@@ -1,0 +1,16 @@
+{
+  "scripts": {
+    "start": "vite --port 3123",
+    "build": "vite build --outDir docs"
+  },
+  "type": "module",
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "minisearch": "^6.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.1.4"
+  }
+}
