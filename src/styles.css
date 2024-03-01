@@ -20,12 +20,29 @@ body {
 }
 ol.search-results {
   /* border: 1px solid #ddd; */
-  max-height: 600px;
-  overflow-y: scroll;
+  /* max-height: 600px; */
+  /* overflow-y: scroll; */
+}
+@media (min-height: 1000px) {
+  ol.search-results {
+    max-height: 600px;
+    overflow-y: scroll;
+  }
 }
 
 .github {
   position: absolute;
   top: 0;
   right: 0;
+}
+
+@media (max-width: 600px) {
+  .github {
+    transform: scale(0.5) translate(50%, -50%);
+  }
+}
+@media (max-height: 600px) {
+  .github {
+    transform: scale(0.5) translate(50%, -50%);
+  }
 }
