@@ -27,7 +27,11 @@ function App() {
   });
 
   return (
-    <>
+    <div
+      className={['app', conversations.length ? 'loaded' : 'loading']
+        .filter(Boolean)
+        .join(' ')}
+    >
       <h1>ChatGPT Search</h1>
       {!conversations.length && (
         // <Markdown>{ReadMe}</Markdown>
@@ -41,16 +45,19 @@ function App() {
         </p>
       )}
       {!!conversations?.length && (
-        <input type="text" autoFocus onChange={onType} />
+        <input name="search" type="text" autoFocus onChange={onType} />
       )}
       {/* <SearchResults input={input} conversations={conversations} /> */}
       {!!conversations?.length && (
         <SearchResults input={input} conversations={conversations} />
       )}
       {/* {!!input && <SearchResults input={input} conversations={conversations} />} */}
-      <input type="file" onChange={onFile} />
+      <label className="input file">
+        Upload your ChatGPT data
+        <input name="file" type="file" onChange={onFile} accept=".zip" />
+      </label>
       {!conversations.length && <Markdown>{ReadMe}</Markdown>}
-    </>
+    </div>
   );
 
   async function onType(e) {
