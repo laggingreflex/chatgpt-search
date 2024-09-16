@@ -5,8 +5,6 @@ import MiniSearch from 'minisearch';
 import Markdown from 'react-markdown';
 import ReadMe from '../README.md?raw';
 
-// console.log('ReadMe:', ReadMe);
-
 let didInit = false;
 const root = createRoot(document.getElementById('app') || document.body);
 root.render(<App />);
@@ -15,13 +13,12 @@ root.render(<App />);
 
 function App() {
   const [conversations, setConversations] = useState([]);
-  // console.log('conversations.length:', conversations.length)
   const [input, setInput] = useState('');
+  const [fuzzy, setFuzzy] = useState(true); // State for fuzzy search toggle
 
   useEffect(() => {
     if (!didInit) {
       didInit = true;
-      // cacheGetFile('conversations', 'myCache').then(processFile).then(setConversations);
       cacheGetJson('json', 'myCache').then((c) => setConversations(c || []));
     }
   });
@@ -34,7 +31,6 @@ function App() {
     >
       <h1>ChatGPT Search</h1>
       {!conversations.length && (
-        // <Markdown>{ReadMe}</Markdown>
         <p>
           Goto{' '}
           <a href="https://chat.openai.com/#settings/DataControls">
@@ -45,13 +41,19 @@ function App() {
         </p>
       )}
       {!!conversations?.length && (
-        <input name="search" type="text" autoFocus onChange={onType} />
+        <>
+          <input name="search" type="text" autoFocus onChange={onType} />
+          <label>
+            <input
+              type="checkbox"
+              checked={fuzzy}
+              onChange={(e) => setFuzzy(e.target.checked)}
+            />{' '}
+            Fuzzy Search
+          </label>
+          <SearchResults input={input} conversations={conversations} fuzzy={fuzzy} />
+        </>
       )}
-      {/* <SearchResults input={input} conversations={conversations} /> */}
-      {!!conversations?.length && (
-        <SearchResults input={input} conversations={conversations} />
-      )}
-      {/* {!!input && <SearchResults input={input} conversations={conversations} />} */}
       <label className="input file">
         Upload your ChatGPT data
         <input name="file" type="file" onChange={onFile} accept=".zip" />
@@ -64,6 +66,7 @@ function App() {
     const text = e.target.value;
     setInput(text);
   }
+
   async function onFile(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -74,9 +77,26 @@ function App() {
   }
 }
 
-function SearchResults({ input, conversations }) {
-  const miniSearch = useMemo(memo, [conversations]);
-  const showing = miniSearch.search(input) ?? [];
+function SearchResults({ input, conversations, fuzzy }) {
+  const miniSearch = useMemo(() => {
+    console.time('miniSearch');
+    let miniSearch = new MiniSearch({
+      fields: ['title', 'text'],
+      storeFields: ['id', 'title', 'updated'],
+    });
+    miniSearch.addAll(conversations);
+    console.timeEnd('miniSearch');
+    return miniSearch;
+  }, [conversations]);
+
+  const options = fuzzy
+    ? {}
+    : { prefix: false, fuzzy: 0, caseSensitive: false };
+
+  const showing = miniSearch.search(input.trim(), options) ?? [];
+
+  // Sort results by date (newest first)
+  showing.sort((a, b) => b.updated - a.updated);
 
   return (
     <>
@@ -85,29 +105,20 @@ function SearchResults({ input, conversations }) {
       </p>
       <ol className="search-results">
         {showing.map((c) => (
-          <li>{map(c)}</li>
+          <li key={c.id}>{map(c)}</li>
         ))}
       </ol>
     </>
   );
 
   function map(c) {
-    return <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a>;
-  }
-
-  function memo() {
-    console.time('miniSearch');
-    let miniSearch;
-    setTimeout(() => {
-      miniSearch = new MiniSearch({
-        fields: ['title', 'text'],
-        storeFields: ['id', 'title', 'date'],
-      });
-      miniSearch.addAll(conversations);
-      console.timeEnd('miniSearch');
-      return miniSearch;
-    });
-    return { search: (i) => miniSearch?.search?.(i) };
+    const date = new Date(c.updated * 1000).toLocaleString();
+    return (
+      <>
+        <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a>{' '}
+        <span>({date})</span>
+      </>
+    );
   }
 }
 
@@ -127,7 +138,6 @@ async function cacheGetJson(key = 'json', cacheName = 'myCache') {
   const cache = await caches.open(cacheName);
   const response = await cache.match(key);
   const json = response?.json();
-  // const blob = await response?.blob();
   console.timeEnd('cacheGetJson');
   return json;
 }
