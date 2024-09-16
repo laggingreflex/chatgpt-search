@@ -21,7 +21,7 @@ function App() {
       didInit = true;
       cacheGetJson('json', 'myCache').then((c) => setConversations(c || []));
     }
-  });
+  }, []);
 
   return (
     <div
@@ -42,7 +42,13 @@ function App() {
       )}
       {!!conversations?.length && (
         <>
-          <input name="search" type="text" autoFocus onChange={onType} />
+          <input
+            name="search"
+            type="text"
+            autoFocus
+            onChange={onType}
+            placeholder="Search conversations..."
+          />
           <label>
             <input
               type="checkbox"
@@ -62,7 +68,7 @@ function App() {
     </div>
   );
 
-  async function onType(e) {
+  function onType(e) {
     const text = e.target.value;
     setInput(text);
   }
@@ -83,6 +89,11 @@ function SearchResults({ input, conversations, fuzzy }) {
     let miniSearch = new MiniSearch({
       fields: ['title', 'text'],
       storeFields: ['id', 'title', 'updated'],
+      searchOptions: {
+        boost: { title: 2 },
+      },
+      // Ensure case-insensitive search (default behavior)
+      tokenize: (string, _fieldName) => string.toLowerCase().split(/\s+/),
     });
     miniSearch.addAll(conversations);
     console.timeEnd('miniSearch');
@@ -91,9 +102,11 @@ function SearchResults({ input, conversations, fuzzy }) {
 
   const options = fuzzy
     ? {}
-    : { prefix: false, fuzzy: 0, caseSensitive: false };
+    : { prefix: false, fuzzy: false };
 
-  const showing = miniSearch.search(input.trim(), options) ?? [];
+  const showing = input
+    ? miniSearch.search(input.trim(), options) ?? []
+    : [];
 
   // Sort results by date (newest first)
   showing.sort((a, b) => b.updated - a.updated);
@@ -137,7 +150,7 @@ async function cacheGetJson(key = 'json', cacheName = 'myCache') {
   console.time('cacheGetJson');
   const cache = await caches.open(cacheName);
   const response = await cache.match(key);
-  const json = response?.json();
+  const json = await response?.json();
   console.timeEnd('cacheGetJson');
   return json;
 }
