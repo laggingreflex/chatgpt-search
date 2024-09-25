@@ -21,7 +21,7 @@ function App() {
       didInit = true;
       cacheGetJson('json', 'myCache').then((c) => setConversations(c || []));
     }
-  }, []);
+  });
 
   return (
     <div
@@ -42,13 +42,7 @@ function App() {
       )}
       {!!conversations?.length && (
         <>
-          <input
-            name="search"
-            type="text"
-            autoFocus
-            onChange={onType}
-            placeholder="Search conversations..."
-          />
+          <input name="search" type="text" autoFocus onChange={onType} />
           <label>
             <input
               type="checkbox"
@@ -68,7 +62,7 @@ function App() {
     </div>
   );
 
-  function onType(e) {
+  async function onType(e) {
     const text = e.target.value;
     setInput(text);
   }
@@ -89,27 +83,31 @@ function SearchResults({ input, conversations, fuzzy }) {
     let miniSearch = new MiniSearch({
       fields: ['title', 'text'],
       storeFields: ['id', 'title', 'updated'],
-      searchOptions: {
-        boost: { title: 2 },
-      },
-      // Ensure case-insensitive search (default behavior)
-      tokenize: (string, _fieldName) => string.toLowerCase().split(/\s+/),
     });
     miniSearch.addAll(conversations);
     console.timeEnd('miniSearch');
     return miniSearch;
   }, [conversations]);
 
-  const options = fuzzy
-    ? {}
-    : { prefix: false, fuzzy: false };
+  let showing = [];
 
-  const showing = input
-    ? miniSearch.search(input.trim(), options) ?? []
-    : [];
+  if (input.trim()) {
+    if (fuzzy) {
+      const options = {}; // Default options for fuzzy search
+      showing = miniSearch.search(input.trim(), options) ?? [];
+    } else {
+      // Exact match search (case-insensitive)
+      const lowerInput = input.toLowerCase();
+      showing = conversations.filter(
+        (c) =>
+          c.text.toLowerCase().includes(lowerInput) ||
+          c.title.toLowerCase().includes(lowerInput)
+      );
+    }
 
-  // Sort results by date (newest first)
-  showing.sort((a, b) => b.updated - a.updated);
+    // Sort results by date (newest first)
+    showing.sort((a, b) => b.updated - a.updated);
+  }
 
   return (
     <>
@@ -150,7 +148,7 @@ async function cacheGetJson(key = 'json', cacheName = 'myCache') {
   console.time('cacheGetJson');
   const cache = await caches.open(cacheName);
   const response = await cache.match(key);
-  const json = await response?.json();
+  const json = response?.json();
   console.timeEnd('cacheGetJson');
   return json;
 }
