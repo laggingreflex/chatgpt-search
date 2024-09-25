@@ -104,12 +104,19 @@ function SearchResults({ input, conversations, fuzzy }) {
     ? {}
     : { prefix: false, fuzzy: false };
 
-  const showing = input
+  let showing = input
     ? miniSearch.search(input.trim(), options) ?? []
     : [];
 
   // Sort results by date (newest first)
   showing.sort((a, b) => b.updated - a.updated);
+
+  if (fuzzy === false) {
+    showing = showing.filter(x => [
+      x.title,
+      conversations.find(c => c.id === x.id).text
+    ].join('\n\n').includes(input))
+  }
 
   return (
     <>
