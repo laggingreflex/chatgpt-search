@@ -17,6 +17,11 @@ function App() {
   const [input, setInput] = useState('');
   const [fuzzy, setFuzzy] = useState(true); // State for fuzzy search toggle
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState({
+    mergeDownload: false,
+    keepFilteredSelected: false,
+  });
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     if (!didInit) {
@@ -43,19 +48,24 @@ function App() {
   const downloadSelectedConversations = () => {
     const selected = conversations.filter((c) => selectedConversations.has(c.id));
     if (selected.length > 0) {
-      const zip = new JSZip();
-      selected.forEach((c) => {
-        zip.file(`${c.title}.md`, c.text);
-      });
-      zip.generateAsync({ type: 'blob' }).then((content) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = 'selected_conversations.zip';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-      });
+      if (settings.mergeDownload) {
+        const combinedText = selected.map((c) => `# ${c.title}\n\n${c.text}`).join('\n\n---\n\n');
+        downloadMarkdown(combinedText, 'selected_conversations.md');
+      } else {
+        const zip = new JSZip();
+        selected.forEach((c) => {
+          zip.file(`${c.title}.md`, c.text);
+        });
+        zip.generateAsync({ type: 'blob' }).then((content) => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(content);
+          a.download = 'selected_conversations.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        });
+      }
     }
   };
 
@@ -66,6 +76,30 @@ function App() {
         .join(' ')}
     >
       <h1>ChatGPT Search</h1>
+      <button className="settings-button" onClick={() => setShowSettings(!showSettings)}>
+        ⚙️
+      </button>
+      {showSettings && (
+        <div className="settings-popup">
+          <h2>Settings</h2>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.mergeDownload}
+              onChange={(e) => setSettings((prev) => ({ ...prev, mergeDownload: e.target.checked }))}
+            />{' '}
+            Merge downloads as a single Markdown file
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.keepFilteredSelected}
+              onChange={(e) => setSettings((prev) => ({ ...prev, keepFilteredSelected: e.target.checked }))}
+            />{' '}
+            Keep filtered items selected
+          </label>
+        </div>
+      )}
       {loading && <pre className='loading'> Loading your saved conversations.. </pre>}
       {!conversations.length && (
         <p>
@@ -94,6 +128,8 @@ function App() {
             fuzzy={fuzzy}
             toggleSelectConversation={toggleSelectConversation}
             selectedConversations={selectedConversations}
+            settings={settings}
+            setSelectedConversations={setSelectedConversations}
           />
           <button onClick={downloadSelectedConversations} disabled={!selectedConversations.size}>
             Download Selected Conversations
@@ -123,7 +159,25 @@ function App() {
   }
 }
 
-function SearchResults({ input, conversations, fuzzy, toggleSelectConversation, selectedConversations }) {
+function SearchResults({
+  input,
+  conversations,
+  fuzzy,
+  toggleSelectConversation,
+  selectedConversations,
+  setSelectedConversations,
+  settings
+}) {
+  useEffect(() => {
+    if (!settings.keepFilteredSelected) {
+      setSelectedConversations((prevSelected) => {
+        const updatedSelected = new Set(
+          Array.from(prevSelected).filter((id) => conversations.some((c) => c.id === id))
+        );
+        return updatedSelected;
+      });
+    }
+  }, [settings.keepFilteredSelected, conversations]);
   const miniSearch = useMemo(() => {
     console.time('miniSearch');
     let miniSearch = new MiniSearch({
@@ -154,6 +208,7 @@ function SearchResults({ input, conversations, fuzzy, toggleSelectConversation, 
     // Sort results by date (newest first)
     showing.sort((a, b) => b.updated - a.updated);
   }
+
 
   return (
     <>
@@ -192,6 +247,7 @@ function SearchResults({ input, conversations, fuzzy, toggleSelectConversation, 
       </>
     );
   }
+
 }
 
 /* Helpers */
