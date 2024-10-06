@@ -13,6 +13,7 @@ root.render(<App />);
 
 function App() {
   const [conversations, setConversations] = useState([]);
+  const [selectedConversations, setSelectedConversations] = useState(new Set());
   const [input, setInput] = useState('');
   const [fuzzy, setFuzzy] = useState(true); // State for fuzzy search toggle
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,37 @@ function App() {
         .finally(() => setLoading(false));
     }
   });
+
+  const toggleSelectConversation = (conversationId) => {
+    setSelectedConversations((prevSelected) => {
+      const updatedSelected = new Set(prevSelected);
+      if (updatedSelected.has(conversationId)) {
+        updatedSelected.delete(conversationId);
+      } else {
+        updatedSelected.add(conversationId);
+      }
+      return updatedSelected;
+    });
+  };
+
+  const downloadSelectedConversations = () => {
+    const selected = conversations.filter((c) => selectedConversations.has(c.id));
+    if (selected.length > 0) {
+      const zip = new JSZip();
+      selected.forEach((c) => {
+        zip.file(`${c.title}.md`, c.text);
+      });
+      zip.generateAsync({ type: 'blob' }).then((content) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = 'selected_conversations.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      });
+    }
+  };
 
   return (
     <div
@@ -56,7 +88,16 @@ function App() {
             />{' '}
             Fuzzy Search
           </label>
-          <SearchResults input={input} conversations={conversations} fuzzy={fuzzy} />
+          <SearchResults
+            input={input}
+            conversations={conversations}
+            fuzzy={fuzzy}
+            toggleSelectConversation={toggleSelectConversation}
+            selectedConversations={selectedConversations}
+          />
+          <button onClick={downloadSelectedConversations} disabled={!selectedConversations.size}>
+            Download Selected Conversations
+          </button>
         </>
       )}
       <label className="input file">
@@ -82,7 +123,7 @@ function App() {
   }
 }
 
-function SearchResults({ input, conversations, fuzzy }) {
+function SearchResults({ input, conversations, fuzzy, toggleSelectConversation, selectedConversations }) {
   const miniSearch = useMemo(() => {
     console.time('miniSearch');
     let miniSearch = new MiniSearch({
@@ -121,7 +162,9 @@ function SearchResults({ input, conversations, fuzzy }) {
       </p>
       <ol className="search-results">
         {showing.map((c) => (
-          <li key={c.id}>{map(c)}</li>
+          <li key={c.id}>
+            {map(c)}
+          </li>
         ))}
       </ol>
     </>
@@ -132,10 +175,14 @@ function SearchResults({ input, conversations, fuzzy }) {
     const con = conversations.find((con) => con.id === c.id);
     return (
       <>
+        <input
+          type="checkbox"
+          checked={selectedConversations.has(c.id)}
+          onChange={() => toggleSelectConversation(c.id)}
+        />
         <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a>{' '}
         <span>({date})</span>
         <span> </span>
-        {/* Insert a download button that triggers a download when clicked of the current conversation in markdown format */}
         <button
           className='download'
           title='Download conversation as markdown'
@@ -145,7 +192,6 @@ function SearchResults({ input, conversations, fuzzy }) {
       </>
     );
   }
-
 }
 
 /* Helpers */
