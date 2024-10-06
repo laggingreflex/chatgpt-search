@@ -36,6 +36,12 @@ ol.search-results {
   }
 }
 
+ol.search-results button.download {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
 .github {
   position: absolute;
   top: 0;

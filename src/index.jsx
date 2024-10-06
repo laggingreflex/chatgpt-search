@@ -124,13 +124,23 @@ function SearchResults({ input, conversations, fuzzy }) {
 
   function map(c) {
     const date = new Date(c.updated * 1000).toLocaleString();
+    const con = conversations.find((con) => con.id === c.id);
     return (
       <>
         <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a>{' '}
         <span>({date})</span>
+        <span> </span>
+        {/* Insert a download button that triggers a download when clicked of the current conversation in markdown format */}
+        <button
+          className='download'
+          title='Download conversation as markdown'
+          onClick={() => downloadMarkdown(con.text, `${c.title}.md`)}>
+          💾
+        </button>
       </>
     );
   }
+
 }
 
 /* Helpers */
@@ -217,4 +227,16 @@ function readFileFromInput(file) {
   });
   reader.readAsArrayBuffer(file);
   return contentsPromise;
+}
+
+function downloadMarkdown(text, filename) {
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
