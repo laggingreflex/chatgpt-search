@@ -15,11 +15,15 @@ function App() {
   const [conversations, setConversations] = useState([]);
   const [input, setInput] = useState('');
   const [fuzzy, setFuzzy] = useState(true); // State for fuzzy search toggle
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!didInit) {
       didInit = true;
-      cacheGetJson('json', 'myCache').then((c) => setConversations(c || []));
+      setLoading(true);
+      cacheGetJson('json', 'myCache')
+        .then((c) => setConversations(c || []))
+        .finally(() => setLoading(false));
     }
   });
 
@@ -30,6 +34,7 @@ function App() {
         .join(' ')}
     >
       <h1>ChatGPT Search</h1>
+      {loading && <pre className='loading'> Loading your saved conversations.. </pre>}
       {!conversations.length && (
         <p>
           Goto{' '}

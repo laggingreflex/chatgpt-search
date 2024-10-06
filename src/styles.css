@@ -92,3 +92,7 @@ label.input.file > input {
   padding: 1em;
   /* display: none; */
 }
+
+.loading {
+  background-image: url('https://media.tenor.com/Uyh7Rjx3QisAAAAi/loading.gif');
+}
