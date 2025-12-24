@@ -7,6 +7,14 @@ import ReadMe from '../README.md?raw';
 
 const logPrefix = '[chatgpt-search]';
 
+// Storage schema/versioning
+// Bump this when changing how/where we persist data.
+const STORAGE_SCHEMA_VERSION = 2;
+const STORAGE_SCHEMA_KEY = 'chatgpt-search:storage-schema-version';
+const CACHE_NAME = `chatgpt-search-cache-v${STORAGE_SCHEMA_VERSION}`;
+// Known previous cache names (kept for migration/cleanup).
+const LEGACY_CACHE_NAMES = ['myCache', 'chatgpt-search-cache-v1'];
+
 let didInit = false;
 const root = createRoot(document.getElementById('app') || document.body);
 root.render(<App />);
@@ -30,16 +38,20 @@ function App() {
   useEffect(() => {
     if (!didInit) {
       didInit = true;
-      setLoading(true);
-      console.debug(logPrefix, 'init: restoring cached conversations');
-      cacheGetJson('json', 'myCache')
-        .then(c => {
+      (async () => {
+        setLoading(true);
+        try {
+          await ensureStorageUpToDate();
+          console.debug(logPrefix, 'init: restoring cached conversations');
+          const c = await cacheGetJson('json');
           console.debug(logPrefix, 'init: cached conversations restored', {
             count: Array.isArray(c) ? c.length : undefined,
           });
           setConversations(c || []);
-        })
-        .finally(() => setLoading(false));
+        } finally {
+          setLoading(false);
+        }
+      })();
     }
   });
 
@@ -231,8 +243,8 @@ function App() {
         conversationsCount: conversations?.length ?? 0,
       });
       setConversations(conversations);
-      await cachePutFile(file, 'file', 'myCache');
-      await cachePutJson(conversations, 'json', 'myCache');
+      await cachePutFile(file, 'file');
+      await cachePutJson(conversations, 'json');
       console.debug(logPrefix, 'file: cached conversations + source zip');
     } finally {
       setLoading(false);
@@ -319,7 +331,7 @@ function SearchResults({
 
 /* Helpers */
 
-async function cacheGetFile(key = 'file', cacheName = 'myCache') {
+async function cacheGetFile(key = 'file', cacheName = CACHE_NAME) {
   // console.time(`${logPrefix} cacheGetFile`);
   const cache = await caches.open(cacheName);
   const response = await cache.match(normalizeCacheKey(key));
@@ -328,7 +340,139 @@ async function cacheGetFile(key = 'file', cacheName = 'myCache') {
   return blob;
 }
 
-async function cacheGetJson(key = 'json', cacheName = 'myCache') {
+async function ensureStorageUpToDate() {
+  // If Cache Storage isn't available (rare, but possible), don't block the app.
+  if (typeof caches === 'undefined') return;
+
+  let previous = null;
+  try {
+    const raw = localStorage.getItem(STORAGE_SCHEMA_KEY);
+    previous = raw == null ? null : Number(raw);
+  } catch {
+    // localStorage can throw in some privacy modes; treat as unknown.
+    previous = null;
+  }
+
+  if (previous === STORAGE_SCHEMA_VERSION) return;
+
+  console.debug(logPrefix, 'storage: schema upgrade', {
+    from: previous,
+    to: STORAGE_SCHEMA_VERSION,
+    cacheName: CACHE_NAME,
+  });
+
+  try {
+    await migrateLegacyCaches();
+  } catch (err) {
+    console.warn(logPrefix, 'storage: legacy cache migration failed', err);
+  }
+
+  try {
+    cleanupLegacyLocalStorage();
+  } catch (err) {
+    console.warn(logPrefix, 'storage: localStorage cleanup failed', err);
+  }
+
+  try {
+    localStorage.setItem(STORAGE_SCHEMA_KEY, String(STORAGE_SCHEMA_VERSION));
+  } catch {
+    // Ignore.
+  }
+}
+
+function cleanupLegacyLocalStorage() {
+  // We don't rely on localStorage anymore, but older versions might have left
+  // behind bulky/invalid entries. Keep the cleanup conservative.
+  if (typeof localStorage === 'undefined') return;
+
+  const shouldRemove = key => {
+    if (!key) return false;
+    // Our keys (past/present) should be namespaced.
+    if (key.startsWith('chatgpt-search')) return true;
+    // MiniSearch-related leftovers from older experiments.
+    if (key.startsWith('minisearch:') || key.startsWith('minisearch-')) return true;
+    return false;
+  };
+
+  // Iterate backwards because we're mutating while iterating.
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (shouldRemove(k)) localStorage.removeItem(k);
+  }
+}
+
+async function migrateLegacyCaches() {
+  const cacheNames = await caches.keys();
+  const existing = new Set(cacheNames);
+
+  // Clean up any older versioned caches we used previously.
+  for (const name of cacheNames) {
+    if (name.startsWith('chatgpt-search-cache-v') && name !== CACHE_NAME) {
+      console.debug(logPrefix, 'storage: deleting old versioned cache', { name });
+      await caches.delete(name);
+    }
+  }
+
+  const toCache = await caches.open(CACHE_NAME);
+
+  for (const legacyName of LEGACY_CACHE_NAMES) {
+    if (!existing.has(legacyName)) continue;
+
+    console.debug(logPrefix, 'storage: migrating legacy cache', {
+      from: legacyName,
+      to: CACHE_NAME,
+    });
+
+    try {
+      await migrateCacheEntries({ fromCacheName: legacyName, toCache });
+    } finally {
+      // Regardless of migration success, delete legacy cache to prevent the app from
+      // being bogged down by stale/broken formats.
+      await caches.delete(legacyName);
+    }
+  }
+}
+
+async function migrateCacheEntries({ fromCacheName, toCache }) {
+  const fromCache = await caches.open(fromCacheName);
+
+  // Conversations + source zip.
+  await copyCacheEntry({ fromCache, toCache, key: 'json' });
+  await copyCacheEntry({ fromCache, toCache, key: 'file' });
+
+  // MiniSearch index (best-effort).
+  const metaRequest = normalizeCacheKey(MINISEARCH_META_KEY);
+  const existingMeta = await toCache.match(metaRequest);
+  if (!existingMeta) {
+    const metaResponse = await fromCache.match(metaRequest);
+    if (metaResponse) {
+      await toCache.put(metaRequest, metaResponse.clone());
+
+      const meta = await metaResponse
+        .clone()
+        .json()
+        .catch(() => null);
+
+      const indexKey = meta?.indexKey;
+      if (typeof indexKey === 'string' && indexKey.length) {
+        await copyCacheEntry({ fromCache, toCache, key: indexKey });
+      }
+    }
+  }
+}
+
+async function copyCacheEntry({ fromCache, toCache, key }) {
+  const request = normalizeCacheKey(key);
+  const already = await toCache.match(request);
+  if (already) return;
+
+  const response = await fromCache.match(request);
+  if (!response) return;
+
+  await toCache.put(request, response.clone());
+}
+
+async function cacheGetJson(key = 'json', cacheName = CACHE_NAME) {
   // console.time(`${logPrefix} cacheGetJson`);
   const cache = await caches.open(cacheName);
   const response = await cache.match(normalizeCacheKey(key));
@@ -337,7 +481,7 @@ async function cacheGetJson(key = 'json', cacheName = 'myCache') {
   return json;
 }
 
-async function cacheGetText(key = 'text', cacheName = 'myCache') {
+async function cacheGetText(key = 'text', cacheName = CACHE_NAME) {
   // console.time(`${logPrefix} cacheGetText`);
   const cache = await caches.open(cacheName);
   const response = await cache.match(normalizeCacheKey(key));
@@ -346,7 +490,7 @@ async function cacheGetText(key = 'text', cacheName = 'myCache') {
   return text;
 }
 
-async function cachePutJson(json, key = 'json', cacheName = 'myCache') {
+async function cachePutJson(json, key = 'json', cacheName = CACHE_NAME) {
   // Avoid logging massive payloads (e.g., the MiniSearch index), which is slow and noisy.
   if (key === 'json') {
     console.debug(logPrefix, 'cachePutJson', {
@@ -363,14 +507,14 @@ async function cachePutJson(json, key = 'json', cacheName = 'myCache') {
   await cache.put(normalizeCacheKey(key), response);
 }
 
-async function cachePutText(text, key = 'text', cacheName = 'myCache') {
+async function cachePutText(text, key = 'text', cacheName = CACHE_NAME) {
   console.debug(logPrefix, 'cachePutText', { key, cacheName, size: text?.length });
   const cache = await caches.open(cacheName);
   const response = new Response(text, { headers: { 'content-type': 'application/json' } });
   await cache.put(normalizeCacheKey(key), response);
 }
 
-async function cachePutFile(file, key = 'file', cacheName = 'myCache') {
+async function cachePutFile(file, key = 'file', cacheName = CACHE_NAME) {
   console.debug(logPrefix, 'cachePutFile', {
     key,
     cacheName,
@@ -430,10 +574,10 @@ async function restoreMiniSearchIndex({ signature, miniSearchOptions }) {
   const expectedIndexKey = getMiniSearchIndexKey(signature);
 
   try {
-    const meta = await cacheGetJson(MINISEARCH_META_KEY, 'myCache');
+    const meta = await cacheGetJson(MINISEARCH_META_KEY);
     if (meta?.signature === signature && meta?.indexKey === expectedIndexKey) {
       // minisearch@6 expects a JSON string here (it JSON.parse's internally).
-      const jsonText = await cacheGetText(expectedIndexKey, 'myCache');
+      const jsonText = await cacheGetText(expectedIndexKey);
       if (jsonText) {
         console.debug(logPrefix, 'MiniSearch: restore hit', {
           signature,
@@ -472,8 +616,8 @@ async function persistMiniSearchIndex({ signature, miniSearchOptions, miniSearch
 
   try {
     // Store index as text so restore can pass it straight to MiniSearch.loadJSON.
-    await cachePutText(indexText, indexKey, 'myCache');
-    await cachePutJson(meta, MINISEARCH_META_KEY, 'myCache');
+    await cachePutText(indexText, indexKey);
+    await cachePutJson(meta, MINISEARCH_META_KEY);
   } catch (err) {
     console.warn(logPrefix, 'MiniSearch: failed to persist to Cache Storage', err);
   }
