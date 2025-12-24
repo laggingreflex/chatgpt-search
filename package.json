@@ -1,4 +1,6 @@
 {
+  "name": "chatgpt-search",
+  "version": "0.1.0",
   "scripts": {
     "start": "vite --port 3123",
     "build": "vite build"
