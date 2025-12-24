@@ -28,13 +28,13 @@ function App() {
       didInit = true;
       setLoading(true);
       cacheGetJson('json', 'myCache')
-        .then((c) => setConversations(c || []))
+        .then(c => setConversations(c || []))
         .finally(() => setLoading(false));
     }
   });
 
-  const toggleSelectConversation = (conversationId) => {
-    setSelectedConversations((prevSelected) => {
+  const toggleSelectConversation = conversationId => {
+    setSelectedConversations(prevSelected => {
       const updatedSelected = new Set(prevSelected);
       if (updatedSelected.has(conversationId)) {
         updatedSelected.delete(conversationId);
@@ -46,17 +46,17 @@ function App() {
   };
 
   const downloadSelectedConversations = () => {
-    const selected = conversations.filter((c) => selectedConversations.has(c.id));
+    const selected = conversations.filter(c => selectedConversations.has(c.id));
     if (selected.length > 0) {
       if (settings.mergeDownload) {
-        const combinedText = selected.map((c) => `# ${c.title}\n\n${c.text}`).join('\n\n---\n\n');
+        const combinedText = selected.map(c => `# ${c.title}\n\n${c.text}`).join('\n\n---\n\n');
         downloadMarkdown(combinedText, 'selected_conversations.md');
       } else {
         const zip = new JSZip();
-        selected.forEach((c) => {
+        selected.forEach(c => {
           zip.file(`${c.title}.md`, c.text);
         });
-        zip.generateAsync({ type: 'blob' }).then((content) => {
+        zip.generateAsync({ type: 'blob' }).then(content => {
           const a = document.createElement('a');
           a.href = URL.createObjectURL(content);
           a.download = 'selected_conversations.zip';
@@ -70,31 +70,27 @@ function App() {
   };
 
   return (
-    <div
-      className={['app', conversations.length ? 'loaded' : 'loading']
-        .filter(Boolean)
-        .join(' ')}
-    >
+    <div className={['app', conversations.length ? 'loaded' : 'loading'].filter(Boolean).join(' ')}>
       <h1>ChatGPT Search</h1>
-      <button className="settings-button" onClick={() => setShowSettings(!showSettings)}>
+      <button className='settings-button' onClick={() => setShowSettings(!showSettings)}>
         ⚙️
       </button>
       {showSettings && (
-        <div className="settings-popup">
+        <div className='settings-popup'>
           <h2>Settings</h2>
           <label>
             <input
-              type="checkbox"
+              type='checkbox'
               checked={settings.mergeDownload}
-              onChange={(e) => setSettings((prev) => ({ ...prev, mergeDownload: e.target.checked }))}
+              onChange={e => setSettings(prev => ({ ...prev, mergeDownload: e.target.checked }))}
             />{' '}
             Merge downloads as a single Markdown file
           </label>
           <label>
             <input
-              type="checkbox"
+              type='checkbox'
               checked={settings.keepFilteredSelected}
-              onChange={(e) => setSettings((prev) => ({ ...prev, keepFilteredSelected: e.target.checked }))}
+              onChange={e => setSettings(prev => ({ ...prev, keepFilteredSelected: e.target.checked }))}
             />{' '}
             Keep filtered items selected
           </label>
@@ -103,24 +99,15 @@ function App() {
       {loading && <pre className='loading'> Loading your saved conversations.. </pre>}
       {!conversations.length && (
         <p>
-          Goto{' '}
-          <a href="https://chat.openai.com/#settings/DataControls">
-            ChatGPT » Export data
-          </a>{' '}
-          and upload (the zip file) here, then you can search through all your
-          conversations.
+          Goto <a href='https://chat.openai.com/#settings/DataControls'>ChatGPT » Export data</a> and upload (the
+          zip file) here, then you can search through all your conversations.
         </p>
       )}
       {!!conversations?.length && (
         <>
-          <input name="search" type="text" autoFocus onChange={onType} />
+          <input name='search' type='text' autoFocus onChange={onType} />
           <label>
-            <input
-              type="checkbox"
-              checked={fuzzy}
-              onChange={(e) => setFuzzy(e.target.checked)}
-            />{' '}
-            Fuzzy Search
+            <input type='checkbox' checked={fuzzy} onChange={e => setFuzzy(e.target.checked)} /> Fuzzy Search
           </label>
           <SearchResults
             input={input}
@@ -136,9 +123,9 @@ function App() {
           </button>
         </>
       )}
-      <label className="input file">
+      <label className='input file'>
         Upload your ChatGPT data
-        <input name="file" type="file" onChange={onFile} accept=".zip" />
+        <input name='file' type='file' onChange={onFile} accept='.zip' />
       </label>
       {!conversations.length && <Markdown>{ReadMe}</Markdown>}
     </div>
@@ -166,13 +153,13 @@ function SearchResults({
   toggleSelectConversation,
   selectedConversations,
   setSelectedConversations,
-  settings
+  settings,
 }) {
   useEffect(() => {
     if (!settings.keepFilteredSelected) {
-      setSelectedConversations((prevSelected) => {
+      setSelectedConversations(prevSelected => {
         const updatedSelected = new Set(
-          Array.from(prevSelected).filter((id) => conversations.some((c) => c.id === id))
+          Array.from(prevSelected).filter(id => conversations.some(c => c.id === id)),
         );
         return updatedSelected;
       });
@@ -199,9 +186,7 @@ function SearchResults({
       // Exact match search (case-insensitive)
       const lowerInput = input.toLowerCase();
       showing = conversations.filter(
-        (c) =>
-          c.text.toLowerCase().includes(lowerInput) ||
-          c.title.toLowerCase().includes(lowerInput)
+        c => c.text.toLowerCase().includes(lowerInput) || c.title.toLowerCase().includes(lowerInput),
       );
     }
 
@@ -209,17 +194,14 @@ function SearchResults({
     showing.sort((a, b) => b.updated - a.updated);
   }
 
-
   return (
     <>
-      <p className="search-results">
+      <p className='search-results'>
         Showing {showing.length} of {conversations?.length ?? 0} conversations
       </p>
-      <ol className="search-results">
-        {showing.map((c) => (
-          <li key={c.id}>
-            {map(c)}
-          </li>
+      <ol className='search-results'>
+        {showing.map(c => (
+          <li key={c.id}>{map(c)}</li>
         ))}
       </ol>
     </>
@@ -227,16 +209,15 @@ function SearchResults({
 
   function map(c) {
     const date = new Date(c.updated * 1000).toLocaleString();
-    const con = conversations.find((con) => con.id === c.id);
+    const con = conversations.find(con => con.id === c.id);
     return (
       <>
         <input
-          type="checkbox"
+          type='checkbox'
           checked={selectedConversations.has(c.id)}
           onChange={() => toggleSelectConversation(c.id)}
         />
-        <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a>{' '}
-        <span>({date})</span>
+        <a href={`https://chat.openai.com/c/${c.id}`}>{c.title}</a> <span>({date})</span>
         <span> </span>
         <button
           className='download'
@@ -247,7 +228,6 @@ function SearchResults({
       </>
     );
   }
-
 }
 
 /* Helpers */
@@ -298,7 +278,7 @@ async function processFile(file) {
 
   function mapConversation(conversation) {
     const messages = Object.values(conversation.mapping)
-      .filter((m) => m.message)
+      .filter(m => m.message)
       .map(mapMessage);
     return {
       title: conversation.title,
@@ -306,7 +286,7 @@ async function processFile(file) {
       time: conversation.create_time,
       id: conversation.conversation_id,
       updated: conversation.update_time,
-      text: messages.map((m) => `[${m.author}] ${m.text}`).join('\n'),
+      text: messages.map(m => `[${m.author}] ${m.text}`).join('\n'),
     };
   }
 
@@ -329,8 +309,8 @@ async function processFile(file) {
 function readFileFromInput(file) {
   const reader = new FileReader();
   const contentsPromise = new Promise((resolve, reject) => {
-    reader.onload = (e) => resolve(e.target?.result);
-    reader.onerror = (e) => reject(e.target?.error);
+    reader.onload = e => resolve(e.target?.result);
+    reader.onerror = e => reject(e.target?.error);
   });
   reader.readAsArrayBuffer(file);
   return contentsPromise;
