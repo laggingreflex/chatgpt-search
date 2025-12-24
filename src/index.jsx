@@ -32,6 +32,7 @@ function App() {
   const [settings, setSettings] = useState({
     mergeDownload: false,
     keepFilteredSelected: false,
+    sortBy: 'updated',
   });
   const [showSettings, setShowSettings] = useState(false);
 
@@ -60,7 +61,8 @@ function App() {
 
     const miniSearchOptions = {
       fields: ['title', 'text'],
-      storeFields: ['id', 'title', 'updated'],
+      // Include `time` so we can sort fuzzy results by created date too.
+      storeFields: ['id', 'title', 'updated', 'time'],
     };
 
     const signature = getConversationsSignature(conversations);
@@ -158,6 +160,16 @@ function App() {
       {showSettings && (
         <div className='settings-popup'>
           <h2>Settings</h2>
+          <label>
+            Sort results by:{' '}
+            <select
+              value={settings.sortBy}
+              onChange={e => setSettings(prev => ({ ...prev, sortBy: e.target.value }))}>
+              <option value='relevance'>Relevance</option>
+              <option value='updated'>Updated date (newest first)</option>
+              <option value='created'>Created date (newest first)</option>
+            </select>
+          </label>
           <label>
             <input
               type='checkbox'
@@ -289,8 +301,47 @@ function SearchResults({
       );
     }
 
-    // Sort results by date (newest first)
-    showing.sort((a, b) => b.updated - a.updated);
+    // Sort results (relevance / updated / created)
+    const sortBy = settings?.sortBy || 'updated';
+
+    if (sortBy === 'relevance') {
+      if (fuzzy) {
+        // MiniSearch returns results in relevance order; keep it stable and tie-break by updated.
+        showing.sort((a, b) => {
+          const scoreA = Number(a?.score ?? 0);
+          const scoreB = Number(b?.score ?? 0);
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return getUpdated(b) - getUpdated(a);
+        });
+      } else {
+        // Exact match results aren't ranked; compute a lightweight relevance score.
+        const q = input.trim().toLowerCase();
+        showing.sort((a, b) => {
+          const scoreA = getExactMatchScore(a, q);
+          const scoreB = getExactMatchScore(b, q);
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return getUpdated(b) - getUpdated(a);
+        });
+      }
+    } else if (sortBy === 'created') {
+      showing.sort((a, b) => {
+        const diff = getCreated(b) - getCreated(a);
+        if (diff) return diff;
+        // Tie-break: if fuzzy search has a score, keep more relevant first.
+        const scoreA = Number(a?.score ?? 0);
+        const scoreB = Number(b?.score ?? 0);
+        return scoreB - scoreA;
+      });
+    } else {
+      // Default: updated date (newest first)
+      showing.sort((a, b) => {
+        const diff = getUpdated(b) - getUpdated(a);
+        if (diff) return diff;
+        const scoreA = Number(a?.score ?? 0);
+        const scoreB = Number(b?.score ?? 0);
+        return scoreB - scoreA;
+      });
+    }
   }
 
   return (
@@ -326,6 +377,34 @@ function SearchResults({
         </button>
       </>
     );
+  }
+
+  function getUpdated(c) {
+    return Number(c?.updated ?? 0);
+  }
+
+  function getCreated(c) {
+    return Number(c?.time ?? 0);
+  }
+
+  function getExactMatchScore(conversation, q) {
+    if (!q) return 0;
+    const title = String(conversation?.title ?? '').toLowerCase();
+    const text = String(conversation?.text ?? '').toLowerCase();
+    return countOccurrences(title, q) * 5 + countOccurrences(text, q);
+  }
+
+  function countOccurrences(haystack, needle) {
+    if (!haystack || !needle) return 0;
+    let count = 0;
+    let i = 0;
+    while (true) {
+      i = haystack.indexOf(needle, i);
+      if (i === -1) break;
+      count++;
+      i += needle.length;
+    }
+    return count;
   }
 }
 
@@ -563,9 +642,10 @@ function fnv1a(str) {
   return (hash >>> 0).toString(16);
 }
 
-const MINISEARCH_META_KEY = 'minisearch:index:meta:v1';
+// Bump this when changing the MiniSearch persisted schema (e.g., storeFields).
+const MINISEARCH_META_KEY = 'minisearch:index:meta:v2';
 function getMiniSearchIndexKey(signature) {
-  return `minisearch:index:${signature}:v1`;
+  return `minisearch:index:${signature}:v2`;
 }
 
 async function restoreMiniSearchIndex({ signature, miniSearchOptions }) {
