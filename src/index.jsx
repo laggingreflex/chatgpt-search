@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import JSZip from 'jszip';
 import MiniSearch from 'minisearch';
@@ -17,6 +17,8 @@ function App() {
   const [input, setInput] = useState('');
   const [fuzzy, setFuzzy] = useState(true); // State for fuzzy search toggle
   const [loading, setLoading] = useState(false);
+  const [miniSearch, setMiniSearch] = useState(null);
+  const [isIndexing, setIsIndexing] = useState(false);
   const [settings, setSettings] = useState({
     mergeDownload: false,
     keepFilteredSelected: false,
@@ -32,6 +34,37 @@ function App() {
         .finally(() => setLoading(false));
     }
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!conversations?.length) {
+      setMiniSearch(null);
+      setIsIndexing(false);
+      return;
+    }
+
+    (async () => {
+      console.time('miniSearch');
+      setIsIndexing(true);
+      try {
+        const nextMiniSearch = new MiniSearch({
+          fields: ['title', 'text'],
+          storeFields: ['id', 'title', 'updated'],
+        });
+        await nextMiniSearch.addAllAsync(conversations);
+        if (cancelled) return;
+        setMiniSearch(nextMiniSearch);
+      } finally {
+        console.timeEnd('miniSearch');
+        if (!cancelled) setIsIndexing(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversations]);
 
   const toggleSelectConversation = conversationId => {
     setSelectedConversations(prevSelected => {
@@ -69,8 +102,10 @@ function App() {
     }
   };
 
+  const isBusy = loading || isIndexing;
+
   return (
-    <div className={['app', loading ? 'loading' : 'loaded'].filter(Boolean).join(' ')}>
+    <div className={['app', isBusy ? 'loading' : 'loaded'].filter(Boolean).join(' ')}>
       <h1>ChatGPT Search</h1>
       <button className='settings-button' onClick={() => setShowSettings(!showSettings)}>
         ⚙️
@@ -96,7 +131,15 @@ function App() {
           </label>
         </div>
       )}
-      {loading && <pre className='loading'> Loading your saved conversations.. </pre>}
+      {isBusy && (
+        <pre className='loading'>
+          {loading && isIndexing
+            ? 'Loading & indexing your conversations..'
+            : loading
+              ? 'Loading your saved conversations..'
+              : 'Indexing your conversations..'}
+        </pre>
+      )}
       {!conversations.length && (
         <p>
           Goto <a href='https://chat.openai.com/#settings/DataControls'>ChatGPT » Export data</a> and upload (the
@@ -113,6 +156,7 @@ function App() {
             input={input}
             conversations={conversations}
             fuzzy={fuzzy}
+            miniSearch={miniSearch}
             toggleSelectConversation={toggleSelectConversation}
             selectedConversations={selectedConversations}
             settings={settings}
@@ -155,6 +199,7 @@ function SearchResults({
   input,
   conversations,
   fuzzy,
+  miniSearch,
   toggleSelectConversation,
   selectedConversations,
   setSelectedConversations,
@@ -170,23 +215,15 @@ function SearchResults({
       });
     }
   }, [settings.keepFilteredSelected, conversations]);
-  const miniSearch = useMemo(() => {
-    console.time('miniSearch');
-    let miniSearch = new MiniSearch({
-      fields: ['title', 'text'],
-      storeFields: ['id', 'title', 'updated'],
-    });
-    miniSearch.addAll(conversations);
-    console.timeEnd('miniSearch');
-    return miniSearch;
-  }, [conversations]);
 
   let showing = [];
 
   if (input.trim()) {
     if (fuzzy) {
-      const options = {}; // Default options for fuzzy search
-      showing = miniSearch.search(input.trim(), options) ?? [];
+      if (miniSearch) {
+        const options = {}; // Default options for fuzzy search
+        showing = miniSearch.search(input.trim(), options) ?? [];
+      }
     } else {
       // Exact match search (case-insensitive)
       const lowerInput = input.toLowerCase();
