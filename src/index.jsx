@@ -19,7 +19,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [miniSearch, setMiniSearch] = useState(null);
   const [isIndexing, setIsIndexing] = useState(false);
-  const [indexStatus, setIndexStatus] = useState('idle');
   const [settings, setSettings] = useState({
     mergeDownload: false,
     keepFilteredSelected: false,
@@ -49,50 +48,30 @@ function App() {
     if (!conversations?.length) {
       setMiniSearch(null);
       setIsIndexing(false);
-      setIndexStatus('idle');
       return;
     }
 
     (async () => {
-      console.time('miniSearch');
-      console.debug('[miniSearch] start', { signature, conversations: conversations.length });
       setIsIndexing(true);
       try {
         // 1) Try restore persisted index for this exact dataset signature.
-        setIndexStatus('restoring');
-        console.time('[miniSearch] restore');
         const restored = await restoreMiniSearchIndex({ signature, miniSearchOptions });
-        console.timeEnd('[miniSearch] restore');
         if (restored) {
           if (cancelled) return;
-          console.debug('[miniSearch] restored OK', { signature });
           setMiniSearch(restored);
-          setIndexStatus('ready');
           return;
         }
 
         // 2) Build index if restore is unavailable/mismatched.
-        setIndexStatus('building');
-        console.debug('[miniSearch] restore miss; building index', { signature });
-        console.time('[miniSearch] build');
         const nextMiniSearch = new MiniSearch(miniSearchOptions);
         await nextMiniSearch.addAllAsync(conversations);
-        console.timeEnd('[miniSearch] build');
         if (cancelled) return;
         setMiniSearch(nextMiniSearch);
 
-        // Mark ready as soon as we can search; persist can happen after.
-        setIndexStatus('ready');
-
         // 3) Persist the freshly-built index.
-        console.time('[miniSearch] persist');
         await persistMiniSearchIndex({ signature, miniSearchOptions, miniSearch: nextMiniSearch });
-        console.timeEnd('[miniSearch] persist');
       } finally {
-        console.timeEnd('miniSearch');
-        console.debug('[miniSearch] done', { signature });
         if (!cancelled) setIsIndexing(false);
-        if (!cancelled && indexStatus !== 'ready') setIndexStatus('ready');
       }
     })();
 
@@ -169,14 +148,10 @@ function App() {
       {isBusy && (
         <pre className='loading'>
           {loading && isIndexing
-            ? indexStatus === 'restoring'
-              ? 'Loading & restoring your search index..'
-              : 'Loading & indexing your conversations..'
+            ? 'Loading & preparing your search index..'
             : loading
               ? 'Loading your saved conversations..'
-              : indexStatus === 'restoring'
-                ? 'Restoring your search index..'
-                : 'Indexing your conversations..'}
+              : 'Preparing your search index..'}
         </pre>
       )}
       {!conversations.length && (
@@ -326,7 +301,7 @@ async function cacheGetJson(key = 'json', cacheName = 'myCache') {
   console.time('cacheGetJson');
   const cache = await caches.open(cacheName);
   const response = await cache.match(normalizeCacheKey(key));
-  const json = response?.json();
+  const json = await response?.json();
   console.timeEnd('cacheGetJson');
   return json;
 }
@@ -401,44 +376,16 @@ function getMiniSearchIndexKey(signature) {
   return `minisearch:index:${signature}:v1`;
 }
 
-// The MiniSearch index can be tens of MB for large exports (far above localStorage quotas).
-// We therefore persist/restore the index via Cache Storage only.
-const USE_LOCALSTORAGE_FOR_MINISEARCH_INDEX = false;
-
 async function restoreMiniSearchIndex({ signature, miniSearchOptions }) {
   if (!signature || signature === 'empty') return null;
 
   const expectedIndexKey = getMiniSearchIndexKey(signature);
 
-  if (USE_LOCALSTORAGE_FOR_MINISEARCH_INDEX) {
-    try {
-      const meta = readLocalJson(MINISEARCH_META_KEY);
-      console.debug('[miniSearch] local meta', meta);
-      if (meta?.signature === signature && meta?.indexKey === expectedIndexKey) {
-        const json = readLocalJson(expectedIndexKey);
-        console.debug('[miniSearch] local index hit', {
-          signature,
-          indexKey: expectedIndexKey,
-          jsonType: typeof json,
-        });
-        if (json) return MiniSearch.loadJSON(json, miniSearchOptions);
-      }
-    } catch (err) {
-      console.warn('MiniSearch: failed to restore from localStorage', err);
-    }
-  }
-
   try {
     const meta = await cacheGetJson(MINISEARCH_META_KEY, 'myCache');
-    console.debug('[miniSearch] cache meta', meta);
     if (meta?.signature === signature && meta?.indexKey === expectedIndexKey) {
       // minisearch@6 expects a JSON string here (it JSON.parse's internally).
       const jsonText = await cacheGetText(expectedIndexKey, 'myCache');
-      console.debug('[miniSearch] cache index hit', {
-        signature,
-        indexKey: expectedIndexKey,
-        jsonTextBytes: jsonText?.length,
-      });
       if (jsonText) return MiniSearch.loadJSON(jsonText, miniSearchOptions);
     }
   } catch (err) {
@@ -460,45 +407,20 @@ async function persistMiniSearchIndex({ signature, miniSearchOptions, miniSearch
   };
 
   const indexJson = miniSearch.toJSON();
-  let approxBytes = undefined;
   let indexText = undefined;
   try {
-    // Rough estimate; JSON.stringify can be expensive for huge indexes but is useful for diagnosis.
     indexText = JSON.stringify(indexJson);
-    approxBytes = indexText.length;
   } catch {
-    // ignore
-  }
-
-  if (USE_LOCALSTORAGE_FOR_MINISEARCH_INDEX) {
-    try {
-      writeLocalJson(indexKey, indexJson);
-      writeLocalJson(MINISEARCH_META_KEY, meta);
-      console.debug('[miniSearch] persisted to localStorage', { indexKey, signature, approxBytes });
-      return;
-    } catch (err) {
-      console.warn('MiniSearch: failed to persist to localStorage', err);
-    }
+    return;
   }
 
   try {
     // Store index as text so restore can pass it straight to MiniSearch.loadJSON.
-    await cachePutText(indexText ?? JSON.stringify(indexJson), indexKey, 'myCache');
+    await cachePutText(indexText, indexKey, 'myCache');
     await cachePutJson(meta, MINISEARCH_META_KEY, 'myCache');
-    console.debug('[miniSearch] persisted to Cache Storage', { indexKey, signature, approxBytes });
   } catch (err) {
     console.warn('MiniSearch: failed to persist to Cache Storage', err);
   }
-}
-
-function readLocalJson(key) {
-  const raw = localStorage.getItem(key);
-  if (!raw) return null;
-  return JSON.parse(raw);
-}
-
-function writeLocalJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
 }
 
 async function processFile(file) {
