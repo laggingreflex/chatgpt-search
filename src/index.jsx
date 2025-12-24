@@ -70,7 +70,7 @@ function App() {
   };
 
   return (
-    <div className={['app', conversations.length ? 'loaded' : 'loading'].filter(Boolean).join(' ')}>
+    <div className={['app', loading ? 'loading' : 'loaded'].filter(Boolean).join(' ')}>
       <h1>ChatGPT Search</h1>
       <button className='settings-button' onClick={() => setShowSettings(!showSettings)}>
         ⚙️
@@ -137,12 +137,17 @@ function App() {
   }
 
   async function onFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const conversations = await processFile(file);
-    setConversations(conversations);
-    await cachePutFile(file, 'file', 'myCache');
-    await cachePutJson(conversations, 'json', 'myCache');
+    try {
+      setLoading(true);
+      const file = e.target.files[0];
+      if (!file) return;
+      const conversations = await processFile(file);
+      setConversations(conversations);
+      await cachePutFile(file, 'file', 'myCache');
+      await cachePutJson(conversations, 'json', 'myCache');
+    } finally {
+      setLoading(false);
+    }
   }
 }
 
